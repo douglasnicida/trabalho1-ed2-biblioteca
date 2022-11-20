@@ -1,0 +1,306 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <locale.h>
+#include <string.h>
+
+/*********************************ESTRUTURAS***********************************/
+typedef struct SLivro
+{
+	char isbn[14];
+	char titulo[50];
+	char autor[50];
+	char ano[5];
+} Livro;
+
+/********************************PROTOTIPOS************************************/
+FILE *abrirArquivo(char *ch);
+void fecharArquivo(FILE *arq);
+char *obterRegistro(FILE *arq, char flag, int tam);
+void inserir();
+void remover();
+
+/**********************************MAIN****************************************/
+int main()
+{
+	setlocale(LC_ALL, "");
+	int op;
+	FILE *arqInserir, *arqRemover, *arqFinal;
+
+	// lista existe dentro do arquivo!!
+	// lembrar do sprintf para salvar as variaveis dos arquivos na memória
+	// no remover pegar o endereco do registro removido e ja atualizar no header
+
+	// Menu
+	printf("*-------- BIBLIOTECA --------*\n");
+
+	do
+	{
+		printf("*____________________________________*\n");
+		printf("|  Opcao      | Funcao                |\n");
+		printf("|    1.       | Inserir               |\n");
+		printf("|    2.       | Remover               |\n");
+		printf("|    3.       | Compactacao           |\n");
+		printf("|    4.       | Carregar arquivo      |\n");
+		printf("|    0.       | Sair do programa      |\n");
+		printf("*------------------------------------*\n");
+		printf("Digite a opcao: ");
+		scanf("%d", &op);
+
+		switch (op)
+		{
+		case 1:
+		{
+			arqInserir = abrirArquivo("insere.bin");
+			arqFinal = abrirArquivo("biblioteca.bin");
+			inserir(arqInserir, arqFinal);
+			fecharArquivo(arqInserir);
+			fecharArquivo(arqFinal);
+			break;
+		}
+		case 2:
+		{
+			arqRemover = abrirArquivo("remove.bin");
+			arqFinal = abrirArquivo("biblioteca.bin");
+			remover(arqRemover, arqFinal);
+			fecharArquivo(arqRemover);
+			fecharArquivo(arqFinal);
+			break;
+		}
+		case 3:
+		{
+			printf("c");
+			break;
+		}
+		case 4:
+		{
+			printf("d");
+			break;
+		}
+		case 0:
+		{
+			printf("e");
+			exit(0);
+			break;
+		}
+		default:
+			printf("Digite uma das opcoes\n");
+		}
+
+	} while (op != 0);
+}
+
+/*********************************FUNCOES**************************************/
+
+FILE *abrirArquivo(char *ch)
+{
+	FILE *arq;
+
+	if (((arq = fopen(ch, "r+b")) == NULL))
+	{
+		printf("ERRO: Falha ao abrir o arquivo\n%s", ch);
+		return arq;
+	}
+
+	return arq;
+}
+
+void fecharArquivo(FILE *arq)
+{
+	fclose(arq);
+}
+
+/* função inserir
+abrir arquivo inserir.bin
+ler dado e salvar na struct
+atualizar o contador no arquivo inserir.bin
+fechar arquivo inserir.bin
+abrir arquivo biblioteca.bin
+salvar dados da struct no arquivo biblioteca
+fechar arquivo biblioteca
+*/
+
+char *obterRegistro(FILE *arq, char flag, int tam)
+{
+	Livro livro;
+	char isbn[14];
+
+	char *buffer = malloc(sizeof(char));
+	char *ch = malloc(sizeof(char));
+	int ct;
+
+	if (fgetc(arq) == '@')
+	{
+		*ch = fgetc(arq);
+		ct = atoi(ch);
+
+		printf("%d\n", ct);
+
+		// Pular para posição desejada e ler o registro
+		flag == 'i' ? fseek(arq, tam * ct, SEEK_SET) : fseek(arq, (tam * ct) + 1, SEEK_SET);
+		flag == 'i' ? fread(&livro, tam, 1, arq) : fread(&isbn, tam + 1, 1, arq);
+
+		printf("%s\n", isbn);
+
+		// Salvar o próximo registro a ser lido
+		rewind(arq);
+		ct++;
+		*ch = ct + '0';
+
+		fseek(arq, 1, SEEK_SET);
+		fwrite(ch, 1, sizeof(char), arq);
+	}
+	else
+	{
+		rewind(arq);
+		flag == 'i' ? fread(&livro, tam, 1, arq) : fread(&isbn, tam, 1, arq);
+		rewind(arq);
+		fwrite("@1", 1, 2 * sizeof(char), arq);
+	}
+
+	if (flag == 'i')
+		sprintf(buffer, "%s#%s#%s#%s#", livro.isbn, livro.titulo, livro.autor, livro.ano);
+	else
+		strcpy(buffer, isbn);
+
+	return buffer;
+}
+
+void inserir(FILE *arqInserir, FILE *arqFinal)
+{
+	char *buffer;
+	int header, tam, tamanhoRemovido;
+
+	buffer = obterRegistro(arqInserir, 'i', sizeof(Livro));
+
+	printf("%s\n", buffer);
+
+	tam = strlen(buffer);
+
+	// Se os primeiros 4 bytes não retornar um inteiro, coloca -1
+	fread(&header, sizeof(int), 1, arqFinal);
+	printf("%d\n", header);
+
+	if (header == 0 || header == -1)
+	{
+		rewind(arqFinal);
+		header = -1;
+		fwrite(&header, sizeof(int), 1, arqFinal);
+
+		// /* Inserindo no final do arquivo */
+		fseek(arqFinal, 0, SEEK_END);
+
+		// Salva o tamanho do registro
+		fwrite(&tam, sizeof(int), 1, arqFinal);
+
+		// Salva o buffer do registro
+		fwrite(buffer, tam, 1, arqFinal);
+	}
+	else
+	{
+		/* Inserir em algum espaço disponível */
+		// pegar o header e ler a lista encadeada
+		int offset = header;
+
+		while (offset != -1)
+		{
+			fseek(arqFinal, offset, SEEK_SET);
+
+			fread(&tamanhoRemovido, sizeof(int), 1, arqFinal); // tamanho dos registros removidos
+
+			fseek(arqFinal, 1, SEEK_CUR);							// pula asterisco
+			fread(&offset, sizeof(int), 1, arqFinal); // pega o valor do offset do registro atual
+
+			if (tamanhoRemovido >= tam)
+			// verificar se o tamanho do registro a ser inserido é maior ou igual ao registro removido
+			{
+				// se o registro removido tiver tamanho maior igual
+				// Inserir registro
+				fseek(arqFinal, header, SEEK_SET);
+				fwrite(buffer, tam, 1, arqFinal);
+
+				// Atualizar a lista
+
+				/**
+				 * Se o elemento achado for o header: o header irá ser o offset do header atual
+				 * Se ele não for o header:
+				 * -> Percorrer a lista de offsets para verificar se tem tamanho disponível
+				 * -
+				 * -> Salva o valor do offset anterior (em uma var auxliar) para salvar a posição do que será excluído e assim manter o offset
+				 */
+
+				break;
+			}
+		}
+
+		rewind(arqFinal);
+		fwrite(&offset, 0, SEEK_SET);
+	}
+}
+
+/**
+ * -1, 20, 10, 26
+ * header2: 10, 50, 23, -1
+ *
+ */
+
+/*
+	* Colocar offset p/ proximo elemento
+	* Voltar p/ posicao
+	 do tamanho
+	* Atualiza o header:
+		- header aponta para o ultimo elemento que foi removido
+*/
+void remover(FILE *arqRemover, FILE *arqFinal)
+{
+	const int TAM_ISBN = 13;
+	char *isbn = (char *)malloc(sizeof(char) * TAM_ISBN);
+	char *isbnBiblioteca = (char *)malloc(sizeof(char) * TAM_ISBN);
+	int tamRegistro = 0, header, novoHeader;
+	char *pos_Prox = malloc(sizeof(char));
+	int posRemovido, finalRegistroRemovido;
+
+	char ch;
+
+	isbn = obterRegistro(arqRemover, 'r', TAM_ISBN);
+	printf("ISBN Remover: %s\n", isbn);
+
+	// Procurar no biblioteca.bin, o registro que será removido a partir do ISBN
+	fread(&header, sizeof(int), 1, arqFinal);
+
+	do
+	{
+		// Ler o tamanho do registro
+		fread(&tamRegistro, sizeof(int), 1, arqFinal);
+
+		// Ler ISBN
+		fread(isbnBiblioteca, TAM_ISBN, 1, arqFinal);
+
+		// Ir pro próximo registro a partir da posição atual
+		fseek(arqFinal, tamRegistro - TAM_ISBN, SEEK_CUR);
+
+		printf("ISBN Biblioteca: %s\n", isbnBiblioteca);
+	} while (strcmp(isbnBiblioteca, isbn) != 0);
+
+	fseek(arqFinal, (ftell(arqFinal) - tamRegistro), SEEK_SET);
+
+	fwrite("*", 1, sizeof(char), arqFinal);
+	fwrite(&header, sizeof(int), 1, arqFinal);
+
+	// printf("POSICAO: %d\n", ftell(arqFinal));
+
+	// Obter a posição do início do ISBN
+	posRemovido = ftell(arqFinal);
+	printf("%d\n", posRemovido);
+
+	finalRegistroRemovido = posRemovido + (tamRegistro - sizeof(int) - sizeof(char));
+
+	// Limpar registro colocando espaços em brancos
+	// posRemovido - tamRegistro - sizeof(int) - sizeof(char) -> está conta obtem o final do registro
+	while (ftell(arqFinal) != finalRegistroRemovido)
+		fwrite(" ", 1, sizeof(char), arqFinal);
+
+	rewind(arqFinal);
+	posRemovido -= 8;
+
+	fwrite(&posRemovido, sizeof(int), 1, arqFinal);
+}
